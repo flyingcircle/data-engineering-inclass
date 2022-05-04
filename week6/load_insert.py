@@ -1,8 +1,9 @@
 # this program loads Census ACS data using basic, slow INSERTs 
 # run it with -h to see the command line options
-
+import io
 import time
 import psycopg2
+import psycopg2.extras
 import argparse
 import re
 import csv
@@ -12,7 +13,7 @@ DBuser = "postgres"
 DBpwd = "pass"
 TableName = 'CensusData'
 Datafile = "filedoesnotexist"  # name of the data file to be loaded
-CreateDB = False  # indicates whether the DB table should be (re)-created
+CreateDB = True  # indicates whether the DB table should be (re)-created
 
 def row2vals(row):
   for key in row:
@@ -91,7 +92,7 @@ def getSQLcmnds(rowlist):
   cmdlist = []
   for row in rowlist:
     valstr = row2vals(row)
-    cmd = f"INSERT INTO {TableName}_UNLOGGED VALUES ({valstr});"
+    cmd = f"INSERT INTO {TableName}_TEMP VALUES ({valstr});"
     cmdlist.append(cmd)
   return cmdlist
 
@@ -203,6 +204,162 @@ def create_unlogged_table(conn):
       
     """)
 
+def create_temporary_table(conn):
+  with conn.cursor() as cursor:
+    cursor.execute(f"""
+      DROP TABLE IF EXISTS {TableName}_TEMP;
+      CREATE TEMP TABLE {TableName}_TEMP (
+        CensusTract         NUMERIC,
+        State               TEXT,
+        County              TEXT,
+        TotalPop            INTEGER,
+        Men                 INTEGER,
+        Women               INTEGER,
+        Hispanic            DECIMAL,
+        White               DECIMAL,
+        Black               DECIMAL,
+        Native              DECIMAL,
+        Asian               DECIMAL,
+        Pacific             DECIMAL,
+        Citizen             DECIMAL,
+        Income              DECIMAL,
+        IncomeErr           DECIMAL,
+        IncomePerCap        DECIMAL,
+        IncomePerCapErr     DECIMAL,
+        Poverty             DECIMAL,
+        ChildPoverty        DECIMAL,
+        Professional        DECIMAL,
+        Service             DECIMAL,
+        Office              DECIMAL,
+        Construction        DECIMAL,
+        Production          DECIMAL,
+        Drive               DECIMAL,
+        Carpool             DECIMAL,
+        Transit             DECIMAL,
+        Walk                DECIMAL,
+        OtherTransp         DECIMAL,
+        WorkAtHome          DECIMAL,
+        MeanCommute         DECIMAL,
+        Employed            INTEGER,
+        PrivateWork         DECIMAL,
+        PublicWork          DECIMAL,
+        SelfEmployed        DECIMAL,
+        FamilyWork          DECIMAL,
+        Unemployment        DECIMAL
+      );	
+      
+    """)
+
+def executeBatchCmd(rowList, conn):
+  for row in rowList:
+    for key in row:
+      if not row[key]:
+        row[key] = 0  # ENHANCE: handle the null vals
+      row['County'] = row['County'].replace('\'','')  # TIDY: eliminate quotes within literals
+
+  with conn.cursor() as cursor:
+    print(f"Loading {len(rowList)} rows")
+    start = time.perf_counter()
+
+    psycopg2.extras.execute_batch(cursor, """INSERT INTO CensusData VALUES (
+     %(CensusTract)s,            -- CensusTract
+     %(State)s,                -- State
+     %(County)s,               -- County
+     %(TotalPop)s,               -- TotalPop
+     %(Men)s,                    -- Men
+     %(Women)s,                  -- Women
+     %(Hispanic)s,               -- Hispanic
+     %(White)s,                  -- White
+     %(Black)s,                  -- Black
+     %(Native)s,                 -- Native
+     %(Asian)s,                  -- Asian
+     %(Pacific)s,                -- Pacific
+     %(Citizen)s,                -- Citizen
+     %(Income)s,                 -- Income
+     %(IncomeErr)s,              -- IncomeErr
+     %(IncomePerCap)s,           -- IncomePerCap
+     %(IncomePerCapErr)s,        -- IncomePerCapErr
+     %(Poverty)s,                -- Poverty
+     %(ChildPoverty)s,           -- ChildPoverty
+     %(Professional)s,           -- Professional
+     %(Service)s,                -- Service
+     %(Office)s,                 -- Office
+     %(Construction)s,           -- Construction
+     %(Production)s,             -- Production
+     %(Drive)s,                  -- Drive
+     %(Carpool)s,                -- Carpool
+     %(Transit)s,                -- Transit
+     %(Walk)s,                   -- Walk
+     %(OtherTransp)s,            -- OtherTransp
+     %(WorkAtHome)s,             -- WorkAtHome
+     %(MeanCommute)s,            -- MeanCommute
+     %(Employed)s,               -- Employed
+     %(PrivateWork)s,            -- PrivateWork
+     %(PublicWork)s,             -- PublicWork
+     %(SelfEmployed)s,           -- SelfEmployed
+     %(FamilyWork)s,             -- FamilyWork
+     %(Unemployment)s            -- Unemployment
+    );""", rowList)
+
+    elapsed = time.perf_counter() - start
+    print(f'Finished Loading. Elapsed Time: {elapsed:0.4} seconds')
+
+def clean_csv_value(value) -> str:
+    if value is None:
+        return r'\N'
+    return str(value).replace('\n', '\\n')
+
+def copy_stringio(rowList, conn) -> None:
+    for row in rowList:
+      for key in row:
+        if not row[key]:
+          row[key] = 0  # ENHANCE: handle the null vals
+        row['County'] = row['County'].replace('\'','')  # TIDY: eliminate quotes within literals
+    with conn.cursor() as cursor:
+        csv_file_like_object = io.StringIO()
+        for row in rowList:
+            csv_file_like_object.write('|'.join(map(clean_csv_value, (
+              row['CensusTract'],            
+              row['State'],                
+              row['County'],               
+              row['TotalPop'],               
+              row['Men'],                    
+              row['Women'],                  
+              row['Hispanic'],               
+              row['White'],                  
+              row['Black'],                  
+              row['Native'],                 
+              row['Asian'],                  
+              row['Pacific'],                
+              row['Citizen'],                
+              row['Income'],                 
+              row['IncomeErr'],              
+              row['IncomePerCap'],           
+              row['IncomePerCapErr'],        
+              row['Poverty'],                
+              row['ChildPoverty'],           
+              row['Professional'],           
+              row['Service'],                
+              row['Office'],                 
+              row['Construction'],           
+              row['Production'],             
+              row['Drive'],                  
+              row['Carpool'],                
+              row['Transit'],                
+              row['Walk'],                   
+              row['OtherTransp'],            
+              row['WorkAtHome'],             
+              row['MeanCommute'],            
+              row['Employed'],               
+              row['PrivateWork'],            
+              row['PublicWork'],             
+              row['SelfEmployed'],           
+              row['FamilyWork'],             
+              row['Unemployment']            
+            ))) + '\n')
+        csv_file_like_object.seek(0)
+        cursor.copy_from(csv_file_like_object, 'censusdata', sep='|')
+
 def create_constraints(conn):
   with conn.cursor() as cursor:
     cursor.execute(f"""ALTER TABLE {TableName} ADD PRIMARY KEY (CensusTract);
@@ -210,7 +367,7 @@ def create_constraints(conn):
 
 def append_staging_table(conn):
   with conn.cursor() as cursor:
-    cursor.execute(f"""INSERT INTO {TableName} SELECT * FROM {TableName}_UNLOGGED;""")
+    cursor.execute(f"""INSERT INTO {TableName} SELECT * FROM {TableName}_TEMP;""")
 
 def load(conn, icmdlist):
 
@@ -229,14 +386,12 @@ def main():
   initialize()
   conn = dbconnect()
   rlis = readdata(Datafile)
-  cmdlist = getSQLcmnds(rlis)
+  #cmdlist = getSQLcmnds(rlis)
 
   if CreateDB:
     createTable(conn)
-    create_unlogged_table(conn)
 
-  load(conn, cmdlist)
-  append_staging_table(conn)
+  copy_stringio(rlis, conn)
   create_constraints(conn)
 
 

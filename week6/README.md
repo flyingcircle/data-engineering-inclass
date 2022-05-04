@@ -14,7 +14,10 @@ My answers: No I have never transferred large chunks of data into a database. I 
 | D. Drop Indexes and Constraints | 0:35.21 | 0:35.79 |
 | E. Disable Autocommit | 0:06.1 | 0:05.4 |
 | F. Use UNLOGGED table | 0:08.98 | 0:08.46 |
-| G. Temp Table with memory tuning | | |
-| H. Batching | | |
-| I. copy_from | | |
+| G. Temp Table with memory tuning | 0:08.54 | 0:08.56 |
+| H. Batching | 0:04.59 | 0:04.48 |
+| I. copy_from | 0:00.3438  | 0:00.3589 |
 
+Results:
+
+It seems that the majority of methods require turning off certain features. ie removing ACID guarantees, delaying adding constraints to the data. But they all pale in comparison to using in-built features. Using the copy_from method, it was able to load the data ~10x faster. Comparing all of the different methods, it seems that sticking to batch methods should really be the preferred way of using SQL dbs. Using temporary tables et al I'm sure have their proper place, but don't seem to be the tool of preference for loading large amounts of data.
